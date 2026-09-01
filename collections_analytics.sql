@@ -264,10 +264,18 @@ valid_recovery AS (
     JOIN account_treatment_status ats ON p.account_id = ats.account_id
     WHERE p.payment_status = 'SUCCESS' 
       AND (
-          (ats.is_treatment = 1 AND p.payment_timestamp_utc >= ats.first_treatment_date)
-          OR (ats.is_treatment = 0 AND p.payment_timestamp_utc >= ats.first_control_date)
+          -- Constrain Treatment to exactly 90 days post-intervention
+          (ats.is_treatment = 1 
+           AND p.payment_timestamp_utc >= ats.first_treatment_date 
+           AND p.payment_timestamp_utc <= ats.first_treatment_date + INTERVAL 90 DAY)
+          OR 
+          -- Constrain Control to exactly 90 days post-intervention
+          (ats.is_treatment = 0 
+           AND p.payment_timestamp_utc >= ats.first_control_date
+           AND p.payment_timestamp_utc <= ats.first_control_date + INTERVAL 90 DAY)
       )
     GROUP BY 1
+)
 )
 SELECT 
     s.risk_segment,
