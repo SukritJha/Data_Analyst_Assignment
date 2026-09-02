@@ -1,43 +1,34 @@
-# 📌 Collections Performance & Strategy Audit
+# Golden Dataset — Collections Analytics
 
-**Core Objective:** Audit 12 months of collections data to verify a reported 11% month-on-month growth claim and allocate a ₹10 Cr operational investment.
+8 golden (cleaned, deduplicated, entity-resolved) tables exported as Parquet
+from `collections_analytics.duckdb`. Full derivation, forensics, and
+cleaning logic is in `01_data_engineering_and_forensics.ipynb`.
 
-### 🚨 1. Executive Verdict
-* **Growth Claim:** The 11% growth is false. It was an illusion caused by data duplication.
-* **Investment ROI:** The new targeting strategy fails to show statistically significant causal lift when controlled for time biases.
-* **Action:** **Hold the ₹10 Cr investment.** Initiate a strictly controlled A/B pilot instead.
+| File | Rows | Primary Key | Notes |
+|---|---|---|---|
+| golden_payments.parquet | 25,000 | payment_id | Deduped from 25,500 raw (500 exact re-ingestion duplicates removed) |
+| golden_calls.parquet | 90,000 | call_id | Deduped from 91,350 raw; timestamps normalized to UTC |
+| golden_agents.parquet | 1,000 | agent_id | Collapsed from 30,000 noisy snapshot rows (latest per agent_id) |
+| golden_borrowers.parquet | 11,015 | borrower_id | Collapsed from 30,600 noisy snapshot rows (latest per borrower_id) |
+| golden_accounts.parquet | 30,000 | account_id | Source of truth for borrower_id resolution; timestamps normalized to UTC |
+| golden_promises_to_pay.parquet | 18,000 | ptp_id | borrower_id resolved via account_id (raw borrower_id was ~98% unreliable) |
+| golden_whatsapp_events.parquet | 60,000 | whatsapp_event_id | Deduped on true PK |
+| golden_account_status_history.parquet | 60,000 | history_id | Kept as full append-only log — no dedup (genuine status transitions, not noise) |
 
----
+## Regenerating
 
-### 🕵️‍♂️ 2. Data Forensics: The "Golden Dataset"
-The raw synthetic data (Seed 42) spanned 17 relational datasets intentionally injected with structural flaws. We built a reliable "Golden Dataset" by fixing:
+Run `01_data_engineering_and_forensics.ipynb` top to bottom against the raw
+CSVs to rebuild `collections_analytics.duckdb` from scratch, or load these
+Parquet files directly:
 
-* **Phantom Recovery ➔** Deduplicated payment references and duplicate payment events. 
-* **Timezone Skew ➔** Standardized mixed UTC, Asia/Kolkata, and Asia/Dubai timestamps into strict UTC.
-* **Fragmented IDs ➔** Resolved inconsistent identifiers and multiple agent identifiers.
-* **Metric Blindspots ➔** Adjusted logic to capture both new and legacy disposition codes.
+```python
+import duckdb
+con = duckdb.connect()
+con.execute("CREATE TABLE golden_payments AS SELECT * FROM 'golden_payments.parquet'")
+```
 
----
-
-### 🧠 3. Counterfactual ROI (Targeting Strategy)
-**Question:** What would recovery have looked like if we had not changed the targeting strategy?
-
-* **The Bias Trap ➔** Raw sums showed massive success, purely due to **attribution-window bias**. Treatment accounts simply had more days to accrue payments.
-* **The Fix ➔** Enforced a strict 90-day observation window for all accounts.
-* **Financial Impact ➔** Incremental lift shrank to just ₹1,094 per account. 
-* **Statistical Proof ➔** A bootstrap test 95% Confidence Interval crossed zero (indistinguishable from noise).
-
----
-
-### 🏗️ 4. Production Data Architecture
-Designed for daily leadership use, moving from raw ingestion to a 60-second CEO review.
-
-**Data Pipeline Flow:**
-`[Raw] ➔ [Staging] ➔ [Clean] ➔ [Golden] ➔ [Feature] ➔ [Metrics] ➔ [Dashboard]`
-
-* **1. Raw:** Ingest all 17 datasets natively with no schema enforcement.
-* **2. Staging:** Detect late-arriving events.
-* **3. Clean:** Standardize timezones and resolve conflicting timestamps.
-* **4. Golden:** Deduplicate and track overwritten-style status history.
-* **5. Metrics:** Pre-aggregate data and enforce strict metric definitions.
-* **6. Dashboard:** Output to a single executive screen optimized for decisions.
+or in pandas:
+```python
+import pandas as pd
+df = pd.read_parquet('golden_payments.parquet')
+```
